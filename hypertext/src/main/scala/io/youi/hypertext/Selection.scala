@@ -1,10 +1,11 @@
 package io.youi.hypertext
 
-import io.youi._
+import io.youi.event.{HTMLEvents, Mouse}
 import io.youi.hypertext.border.BorderStyle
-import io.youi.{BoundingBox, Color, HTMLEvents, Key}
+import io.youi.spatial.BoundingBox
+import io.youi.{Color, Key, _}
 import org.scalajs.dom.raw.MouseEvent
-import org.scalajs.dom.{document, html}
+import org.scalajs.dom.{html, window}
 import reactify._
 
 import scala.collection.immutable.ListSet
@@ -22,12 +23,10 @@ import scala.collection.immutable.ListSet
 abstract class Selection[T](root: html.Element,
                             elements: => ListSet[T],
                             autoStyle: Boolean = true,
-                            adjustX: => Double = document.body.scrollLeft,
-                            adjustY: => Double = document.body.scrollTop,
+                            adjustX: => Double = window.pageXOffset,
+                            adjustY: => Double = window.pageYOffset,
                             includeChildTargets: Boolean = false) extends Container {
   element.style.pointerEvents = "none"
-
-  private val mouse = ui.mouse
 
   val enabled: Var[Boolean] = Var(true)
   val time: Var[Long] = Var(0L)
@@ -64,7 +63,7 @@ abstract class Selection[T](root: html.Element,
     if (enabled()) {
       if (!visible()) {
         evt.key match {
-          case Key.Shift | Key.Control => updateHighlighting(mouse.x, mouse.y, mouse.x, mouse.y)
+          case Key.Shift | Key.Control => updateHighlighting(Mouse.x, Mouse.y, Mouse.x, Mouse.y)
           case _ => // Ignore others
         }
       }

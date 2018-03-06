@@ -1,15 +1,15 @@
 package io.youi.hypertext
 
-import io.youi.Unique
+import io.youi.{Unique, Widget, WidgetPosition, WidgetSize}
 import io.youi.hypertext.style.{ColorProperties, Position}
 import io.youi.task.TaskSupport
 import reactify._
 
-trait AbstractComponent extends TaskSupport {
+trait AbstractComponent extends TaskSupport with Widget {
   lazy val id: Var[String] = Var(Unique(length = 8, characters = Unique.LettersLower))
   lazy val parent: State[Option[AbstractComponent]] = Var(None)
 
-  object position {
+  object position extends WidgetPosition {
     lazy val `type`: Var[Position] = Var(Position.Absolute)
     lazy val x: Var[Double] = Var(0.0)
     lazy val y: Var[Double] = Var(0.0)
@@ -82,7 +82,7 @@ trait AbstractComponent extends TaskSupport {
   protected val innerWidth: Var[Double] = Var(0.0)
   protected val innerHeight: Var[Double] = Var(0.0)
 
-  object size {
+  object size extends WidgetSize {
     lazy val width: Var[Double] = Var(0.0)
     lazy val height: Var[Double] = Var(0.0)
 
@@ -122,10 +122,8 @@ trait AbstractComponent extends TaskSupport {
   lazy val opacity: Var[Double] = Var(1.0)
   lazy val visible: Var[Boolean] = Var(true)
 
-  protected def init(): Unit = {}
-
   def removeFromParent(): Boolean = parent().exists { p =>
-    p.asInstanceOf[AbstractContainer[AbstractComponent]].children -= this
+    p.asInstanceOf[AbstractContainer[AbstractComponent]].childEntries -= this
     true
   }
 

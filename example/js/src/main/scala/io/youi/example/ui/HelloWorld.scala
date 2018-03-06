@@ -1,24 +1,33 @@
 package io.youi.example.ui
 
 import io.youi._
-import io.youi.app.screen.UIScreen
-import io.youi.component.BasicText
-import io.youi.paint.{Border, Stroke}
+import io.youi.app.screen.{PathActivation, Screen}
+import io.youi.component.TextView
+import io.youi.font.{GoogleFont, OpenTypeFont}
+import io.youi.net.URL
+import reactify._
 
-object HelloWorld extends UIExampleScreen with UIScreen {
-  override def name: String = "Hello World"
+import scala.concurrent.Future
+import scala.concurrent.ExecutionContext.Implicits.global
+
+object HelloWorld extends Screen with PathActivation {
+  override protected def title: String = "Hello World"
   override def path: String = "/examples/hello.html"
 
-  override def createUI(): Unit = {
-    container.children += new BasicText {
-      value := "Hello, World!"
-      font.size := 48.0
-      fill := Color.DarkBlue
-      background := Color.LightBlue
-      padding.left := 60.0
-      border := Border(Stroke(Color.Red, lineWidth = 2.0), 10.0)
-      position.center := ui.position.center
-      position.middle := ui.position.middle
+  val fontURL: URL = GoogleFont.`Open Sans`.`regular`
+
+  override protected def init(): Future[Unit] = super.init().flatMap { _ =>
+    OpenTypeFont.fromURL(fontURL).map { fnt =>
+      val textView = new TextView {
+        //      cache := true
+        //      font.file := fnt
+        //      font.size := 48.0
+        value := "Hello, World!"
+        //      fill := Color.DarkBlue
+        position.center := ui.position.center
+        position.middle := ui.position.middle
+      }
+      ui.children += textView
     }
   }
 }

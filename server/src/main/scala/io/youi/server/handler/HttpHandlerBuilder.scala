@@ -2,9 +2,9 @@ package io.youi.server.handler
 
 import java.io.File
 
-import io.circe.{Decoder, Encoder, Printer}
 import io.circe.parser._
 import io.circe.syntax._
+import io.circe.{Decoder, Encoder, Json, Printer}
 import io.youi.Priority
 import io.youi.http._
 import io.youi.net.{ContentType, URL, URLMatcher}
@@ -14,12 +14,17 @@ import io.youi.stream.{Delta, HTMLParser, Selector}
 
 case class HttpHandlerBuilder(server: Server,
                               urlMatcher: Option[URLMatcher] = None,
+                              requestMatchers: Set[HttpRequest => Boolean] = Set.empty,
                               cachingManager: CachingManager = CachingManager.Default,
                               priority: Priority = Priority.Normal,
                               validators: List[Validator] = Nil) {
   def priority(priority: Priority): HttpHandlerBuilder = copy(priority = priority)
 
   def matcher(urlMatcher: URLMatcher): HttpHandlerBuilder = copy(urlMatcher = Some(urlMatcher))
+
+  def requestMatcher(requestMatcher: HttpRequest => Boolean): HttpHandlerBuilder = copy(requestMatchers = requestMatchers + requestMatcher)
+
+  def methodMatcher(method: Method): HttpHandlerBuilder = requestMatcher(request => request.method == method)
 
   def caching(cachingManager: CachingManager): HttpHandlerBuilder = copy(cachingManager = cachingManager)
 
@@ -37,7 +42,7 @@ case class HttpHandlerBuilder(server: Server,
 
   def file(directory: File, pathTransform: String => String = (s: String) => s): HttpHandler = {
     handle { connection =>
-      val path = pathTransform(connection.request.url.path.encoded)
+      val path = pathTransform(connection.request.url.path.decoded)
       val file = new File(directory, path)
       if (file.isFile) {
         SenderHandler(Content.file(file), caching = cachingManager).handle(connection)
@@ -52,7 +57,7 @@ case class HttpHandlerBuilder(server: Server,
       directory
     }
     handle { connection =>
-      val path = pathTransform(connection.request.url.path.encoded)
+      val path = pathTransform(connection.request.url.path.decoded)
       val resourcePath = s"$dir$path" match {
         case s if s.startsWith("/") => s.substring(1)
         case s => s
@@ -102,26 +107,43 @@ case class HttpHandlerBuilder(server: Server,
 
   def restful[Request, Response](handler: Request => Response)
                                 (implicit decoder: Decoder[Request], encoder: Encoder[Response]): HttpHandler = {
-    val printer = Printer.spaces2.copy(dropNullKeys = false)
+    val printer = Printer.spaces2.copy(dropNullValues = false)
     handle { connection =>
-      connection.request.content match {
-        case Some(content) => content match {
-          case StringContent(jsonString, _, _) => {
-            decode[Request](jsonString) match {
-              case Left(error) => scribe.error(new RuntimeException(s"Error parsing $jsonString", error))
-              case Right(request) => {
-                val response = handler(request)
-                val responseJson = response.asJson
-                val responseJsonString = printer.pretty(responseJson)
-                connection.update { httpResponse =>
-                  httpResponse.withContent(Content.string(responseJsonString, ContentType.`application/json`))
-                }
+      val jsonOption: Option[Json] = connection.request.method match {
+        case Method.Get => {
+          Some(Json.obj(connection.request.url.parameters.entries.map {
+            case (key, param) => key -> Json.fromString(param.value)
+          }: _*))
+        }
+        case _ => connection.request.content match {
+          case Some(content) => content match {
+            case StringContent(jsonString, _, _) => parse(jsonString) match {
+              case Left(failure) => {
+                scribe.warn(failure)
+                None
               }
+              case Right(json) => Some(json)
+            }
+            case _ => {
+              scribe.error(s"Unsupported content for restful end-point: $content.")
+              None
             }
           }
-          case _ => scribe.error(s"Unsupported content for restulf end-point: $content.")
+          case None => None     // Ignore calls to this end-point that have no content
         }
-        case None => // Ignore calls to this end-point that have no content
+      }
+      jsonOption.foreach { json =>
+        json.as[Request] match {
+          case Left(error) => scribe.error(new RuntimeException(s"Error parsing $json", error))
+          case Right(request) => {
+            val response = handler(request)
+            val responseJson = response.asJson
+            val responseJsonString = printer.pretty(responseJson)
+            connection.update { httpResponse =>
+              httpResponse.withContent(Content.string(responseJsonString, ContentType.`application/json`))
+            }
+          }
+        }
       }
     }
   }
@@ -134,7 +156,7 @@ case class HttpHandlerBuilder(server: Server,
       override def priority: Priority = p
 
       override def handle(connection: HttpConnection): Unit = {
-        if (urlMatcher.forall(_.matches(connection.request.url))) {
+        if (urlMatcher.forall(_.matches(connection.request.url)) && requestMatchers.forall(_(connection.request))) {
           ValidatorHttpHandler.validate(connection, validators) match {
             case ValidationResult.Continue => handler.handle(connection)
             case _ => // Validation failed, handled by ValidatorHttpHandler
